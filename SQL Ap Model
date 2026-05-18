@@ -1,0 +1,49 @@
+-- ============================================================
+-- Metric Flow Engine V1
+-- Model: Accounts Payable (AP)
+-- Description: Cleans raw supplier payment data and produces a
+--              structured AP schedule with weekly outflow grouping.
+-- ============================================================
+
+CREATE OR REPLACE VIEW `your_project.metric_flow_engine.ap_model` AS
+
+SELECT
+
+  -- Core identifiers
+  supplierID,
+  supplierName,
+  category,
+
+  -- Dates
+  paymentDate,
+
+  -- Amount
+  ROUND(amount, 2) AS amount,
+
+  -- Payment size classification
+  CASE
+    WHEN amount >= 10000 THEN 'Large'
+    WHEN amount >= 5000  THEN 'Medium'
+    ELSE 'Small'
+  END AS payment_size,
+
+  -- Week grouping for cashflow forecast
+  DATE_TRUNC(paymentDate, WEEK(MONDAY)) AS week_starting,
+
+  -- Month grouping
+  FORMAT_DATE('%Y-%m', paymentDate) AS payment_month,
+
+  -- Days until payment is due (from today)
+  DATE_DIFF(paymentDate, CURRENT_DATE(), DAY) AS days_until_due,
+
+  -- Urgency flag
+  CASE
+    WHEN DATE_DIFF(paymentDate, CURRENT_DATE(), DAY) < 0   THEN 'Overdue'
+    WHEN DATE_DIFF(paymentDate, CURRENT_DATE(), DAY) <= 7  THEN 'Due This Week'
+    WHEN DATE_DIFF(paymentDate, CURRENT_DATE(), DAY) <= 14 THEN 'Due Next Week'
+    ELSE 'Upcoming'
+  END AS payment_urgency
+
+FROM `your_project.metric_flow_engine.raw_supplier_payments`
+
+ORDER BY paymentDate ASC;
