@@ -1,0 +1,66 @@
+-- ============================================================
+-- Metric Flow Engine V1
+-- Model: Accounts Receivable (AR)
+-- Description: Cleans raw invoice data and produces a structured
+--              AR view with risk classification and weekly inflow.
+-- ============================================================
+
+CREATE OR REPLACE VIEW `your_project.metric_flow_engine.ar_model` AS
+
+SELECT
+
+  -- Core invoice identifiers
+  invoiceID,
+  customerName,
+  projectName,
+
+  -- Dates
+  invoiceDate,
+  dueDate,
+  paidDate,
+
+  -- Amounts
+  ROUND(invoiceAmount, 2)    AS invoice_amount,
+  ROUND(amountPaid, 2)       AS amount_paid,
+  ROUND(invoiceAmount - amountPaid, 2) AS balance_outstanding,
+
+  -- Status flag
+  CASE
+    WHEN amountPaid >= invoiceAmount THEN 'Paid'
+    WHEN paidDate IS NULL            THEN 'Unpaid'
+    ELSE 'Part Paid'
+  END AS payment_status,
+
+  -- Days outstanding (from today)
+  DATE_DIFF(CURRENT_DATE(), dueDate, DAY) AS days_overdue,
+
+  -- Overdue bucket classification
+  CASE
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) <= 0   THEN 'Current'
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) <= 30  THEN '1-30 Days'
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) <= 60  THEN '31-60 Days'
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) <= 90  THEN '61-90 Days'
+    ELSE '90+ Days'
+  END AS overdue_bucket,
+
+  -- Debtor risk flag
+  CASE
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) > 90 THEN 'High Risk'
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) > 60 THEN 'Medium Risk'
+    WHEN DATE_DIFF(CURRENT_DATE(), dueDate, DAY) > 30 THEN 'Low Risk'
+    ELSE 'Current'
+  END AS debtor_risk,
+
+  -- Week the payment is expected (for cashflow forecast)
+  DATE_TRUNC(dueDate, WEEK(MONDAY)) AS expected_inflow_week,
+
+  -- Month grouping
+  FORMAT_DATE('%Y-%m', dueDate) AS due_month
+
+FROM `your_project.metric_flow_engine.raw_invoices`
+
+-- Exclude fully paid invoices from open AR view
+WHERE amountPaid < invoiceAmount
+   OR paidDate IS NULL
+
+ORDER BY dueDate ASC;
